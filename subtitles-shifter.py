@@ -1,4 +1,5 @@
 import argparse
+import pathlib
 import sys
 from collections import namedtuple
 
@@ -76,34 +77,80 @@ class Subtitle:
         self.start.shift(h, m, s, ms)
         self.end.shift(h, m, s, ms)
 
+    def __str__(self):
+        return self.to_str()
 
-def read_srt(source) -> list[Subtitle]:
-    parts = [p.strip() for p in source.read().strip().split("\n\n")]
+
+def get_source(source):
+    if source is None:
+        return get_source_from_stdin()
+    return get_source_from_file(source)
+
+
+def get_source_from_stdin():
+    sys.stdin.reconfigure(encoding="utf-8-sig")
+    result = sys.stdin.read().replace('\r', '')
+    sys.stdin.reconfigure(encoding="utf-8")
+    return result
+
+
+def get_source_from_file(file_name):
+    with open(file_name, encoding="utf-8-sig") as f:
+        return f.read()
+
+
+def read_srt(source: str) -> list[Subtitle]:
+    parts = [p.strip() for p in source.strip().split("\n\n")]
     return [Subtitle.from_str(p) for p in parts]
 
 
-def write_srt(srt: list[Subtitle], dest):
-    dest.write("\n\n".join([s.to_str() for s in srt]) + "\n\n")
+def dump_srt(srt: list[Subtitle]):
+    return "\n\n".join([s.to_str() for s in srt]) + "\n\n"
+
+
+def write_to_dest(result, dest):
+    if dest is None:
+        write_to_stdin(result)
+    else:
+        write_to_file(result, dest)
+
+
+def write_to_stdin(result):
+    sys.stdout.reconfigure(encoding="utf-8-sig")
+    sys.stdout.write(result)
+    sys.stdout.reconfigure(encoding="utf-8")
+
+
+def write_to_file(result, file_name):
+    with open(file_name, 'w', encoding="utf-8-sig") as f:
+        f.write(result)
+
 
 
 def parse_arguments(argv):
     parser = argparse.ArgumentParser()
+    parser.add_argument("source", type=pathlib.Path, nargs='?')
+    parser.add_argument("dest", type=pathlib.Path, nargs='?')
     parser.add_argument("-hours", type=int, nargs='?', default=0)
     parser.add_argument("-m", type=int, nargs='?', default=0)
     parser.add_argument("-s", type=int, nargs='?', default=0)
     parser.add_argument("-ms", type=int, nargs='?', default=0)
-    return parser.parse_args(argv[1:])
+    args = parser.parse_args(argv[1:])
+    shift = {"h": args.hours, "m": args.m, "s": args.s, "ms": args.ms}
+    return args.source, args.dest, shift
 
 
 def main(argv):
-    shift = parse_arguments(argv)
-    if not (-1000 < shift.ms < 1000 and -60 < shift.s < 60 and -60 < shift.m < 60):
+    source, dest, shift = parse_arguments(argv)
+    if not (-1000 < shift["ms"] < 1000 \
+            and -60 < shift["s"] < 60 \
+            and -60 < shift["m"] < 60):
         print("Too big shift, please use convinient measures")
         return
-    srt = read_srt(sys.stdin)
+    srt = read_srt(get_source(source))
     for subtitle in srt:
-        subtitle.shift(shift.hours, shift.m, shift.s, shift.ms)
-    write_srt(srt, sys.stdout)
+        subtitle.shift(**shift)
+    write_to_dest(dump_srt(srt), dest)
 
 
 if __name__ == "__main__":
